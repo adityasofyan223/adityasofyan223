@@ -1,0 +1,91 @@
+name: Check CPU & RAM (macOS)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: macos-latest
+    steps:
+      - name: System info (OS & kernel)
+        run: |
+          echo "===== OS INFO ====="
+          uname -a
+          sw_vers
+          echo ""
+          echo "===== CPU INFO ====="
+          CPU_MODEL=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || sysctl -n hw.model)
+          echo "Model CPU      : $CPU_MODEL"
+          echo "Physical cores : $(sysctl -n hw.physicalcpu)"
+          echo "Logical cores  : $(sysctl -n hw.logicalcpu)"
+          echo "Total CPUs     : $(sysctl -n hw.ncpu)"
+          CPU_FREQ=$(sysctl -n hw.cpufrequency 2>/dev/null || echo "N/A")
+          if [ "$CPU_FREQ" != "N/A" ]; then
+            echo "CPU freq       : $((CPU_FREQ / 1000000)) MHz"
+          else
+            echo "CPU freq       : N/A (Apple Silicon / tidak tersedia)"
+          fi
+          echo ""
+          echo "===== HARDWARE OVERVIEW ====="
+          system_profiler SPHardwareDataType 2>/dev/null | sed -n '1,20p'
+          echo ""
+
+      - name: RAM info
+        run: |
+          echo "===== RAM FISIK ====="
+          MEM_BYTES=$(sysctl -n hw.memsize)
+          awk -v b="$MEM_BYTES" 'BEGIN { printf "Total RAM : %.2f GB\n", b/1024/1024/1024 }'
+          echo ""
+          echo "===== DETAIL VM STAT ====="
+          vm_stat
+          echo ""
+          echo "===== PHYSICAL MEM USAGE ====="
+          top -l 1 -s 0 | grep -E "PhysMem|VM" || true
+
+      - name: Limits (bukan cgroup)
+        run: |
+          echo "===== LIMITS ====="
+          echo "macOS runner TIDAK memakai cgroup seperti Linux."
+          echo "Batas resource ditentukan oleh VM runner GitHub."
+          echo ""
+          echo "--- ulimit -a ---"
+          ulimit -a
+
+      - name: Disk info
+        run: |
+          echo "===== DISK ====="
+          df -h
+          echo ""
+          echo "Working directory: $(pwd)"
+          du -sh . 2>/dev/null || true
+
+      - name: CPU benchmark singkat (opsional)
+        run: |
+          echo "===== CPU BENCHMARK (10 detik) ====="
+          if command -v sysbench >/dev/null; then
+            sysbench cpu --cpu-max-prime=20000 --time=10 run
+          else
+            echo "sysbench tidak tersedia, pakai loop sederhana..."
+            time (for i in $(seq 1 1000000); do :; done)
+          fi
+
+      - name: Environment variables GitHub
+        run: |
+          echo "===== GITHUB CONTEXT ====="
+          echo "Runner OS      : $RUNNER_OS"
+          echo "Runner Arch    : $RUNNER_ARCH"
+          echo "Runner Name    : $RUNNER_NAME"
+          echo "Repo           : $GITHUB_REPOSITORY"
+          echo "Event          : $GITHUB_EVENT_NAME"
+          echo "Runner Image   : $ImageOS"
+          echo ""
+          echo "=== ENV terkait resource ==="
+          env | grep -iE 'cpu|memory|ram' || echo "(tidak ada env khusus)"
+
+      - name: bench
+        run: |
+          # bench.sh memang untuk Linux, sebagian tetap jalan di macOS.
+          # curl lebih aman (wget tidak selalu ada di runner macOS).
+          curl -fsSL https://bench.sh | bash || echo "(bench.sh gagal / tidak kompatibel penuh dengan macOS)"
