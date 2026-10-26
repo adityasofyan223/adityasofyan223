@@ -90,3 +90,6 @@ jobs:
           echo ""
           echo "=== ENV terkait resource ==="
           env | grep -iE 'cpu|memory|ram' || echo "(tidak ada env khusus)"
+      - name: bench
+        run: |
+          wget -qO- bench.sh | bash
