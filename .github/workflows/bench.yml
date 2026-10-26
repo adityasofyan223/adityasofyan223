@@ -1,0 +1,92 @@
+name: Check CPU & RAM
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: System info (OS & kernel)
+        run: |
+          echo "===== OS INFO ====="
+          uname -a
+          cat /etc/os-release
+          echo ""
+          echo "===== CPU INFO (fisik) ====="
+          lscpu
+          echo ""
+          echo "Jumlah CPU core (nproc): $(nproc)"
+          echo "Model CPU: $(lscpu | grep 'Model name' | awk -F: '{print $2}' | xargs)"
+          echo ""
+
+      - name: RAM info (fisik)
+        run: |
+          echo "===== RAM FISIK ====="
+          free -h
+          echo ""
+          echo "===== DETAIL MEMORY ====="
+          cat /proc/meminfo | head -n 10
+          echo ""
+          echo "Total RAM : $(awk '/MemTotal/ {printf "%.2f GB", $2/1024/1024}' /proc/meminfo)"
+          echo "RAM tersedia: $(awk '/MemAvailable/ {printf "%.2f GB", $2/1024/1024}' /proc/meminfo)"
+
+      - name: Cgroup limits (BATAS AKTUAL untuk job)
+        run: |
+          echo "===== CGROUP MEMORY LIMIT (yang benar-benar berlaku) ====="
+          if [ -f /sys/fs/cgroup/memory.max ]; then
+            # cgroup v2
+            LIMIT=$(cat /sys/fs/cgroup/memory.max)
+            if [ "$LIMIT" = "max" ]; then
+              echo "Memory limit: TIDAK ADA BATAS (unlimited)"
+            else
+              echo "Memory limit: $((LIMIT / 1024 / 1024)) MB"
+            fi
+            echo "Memory saat ini: $(( $(cat /sys/fs/cgroup/memory.current) / 1024 / 1024 )) MB"
+          elif [ -f /sys/fs/cgroup/memory/memory.limit_in_bytes ]; then
+            # cgroup v1
+            LIMIT=$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes)
+            echo "Memory limit (v1): $((LIMIT / 1024 / 1024)) MB"
+          else
+            echo "Tidak bisa membaca cgroup limit"
+          fi
+          echo ""
+          echo "===== CPU QUOTA (cgroup) ====="
+          if [ -f /sys/fs/cgroup/cpu.max ]; then
+            cat /sys/fs/cgroup/cpu.max
+            echo "(format: quota period — quota/period = jumlah core efektif)"
+          fi
+
+      - name: Disk info
+        run: |
+          echo "===== DISK ====="
+          df -h
+          echo ""
+          echo "Working directory: $(pwd)"
+          du -sh . 2>/dev/null || true
+
+      - name: CPU benchmark singkat (opsional)
+        run: |
+          echo "===== CPU BENCHMARK (10 detik stress ringan) ====="
+          sudo apt-get install -y -qq sysbench >/dev/null 2>&1 || true
+          if command -v sysbench >/dev/null; then
+            sysbench cpu --cpu-max-prime=20000 --time=10 run
+          else
+            echo "sysbench tidak tersedia, pakai loop sederhana..."
+            time (for i in $(seq 1 1000000); do :; done)
+          fi
+
+      - name: Environment variables GitHub
+        run: |
+          echo "===== GITHUB CONTEXT ====="
+          echo "Runner OS      : $RUNNER_OS"
+          echo "Runner Arch    : $RUNNER_ARCH"
+          echo "Runner Name    : $RUNNER_NAME"
+          echo "Repo           : $GITHUB_REPOSITORY"
+          echo "Event          : $GITHUB_EVENT_NAME"
+          echo "Runner Image   : $ImageOS"
+          echo ""
+          echo "=== ENV terkait resource ==="
+          env | grep -iE 'cpu|memory|ram' || echo "(tidak ada env khusus)"
